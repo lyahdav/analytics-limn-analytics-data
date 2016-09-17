@@ -18,6 +18,7 @@ import phabricator
 import requests
 from datetime import datetime, timedelta
 import pylab as plt
+import matplotlib.patches as mpatches
 
 DATE_FORMAT = '%Y-%m-%d'
 IN_PROGRESS_COLUMN_VALUE = 2
@@ -310,6 +311,9 @@ def joined_column_counts_for_day(day, tasks, done_column, start_date):
     return '\t'.join(str(c).ljust(15) for c in column_counts_for_day(day, tasks, done_column, start_date))
 
 def show_cfd(tasks, args):
+    """
+    Render cumulative flow diagram
+    """
     days_in_range = (args.end_date - args.start_date).days
     dates = [(args.start_date + timedelta(days=d)) for d in range(days_in_range)]
     column_count = len(CONFIG['columns'])
@@ -322,7 +326,14 @@ def show_cfd(tasks, args):
             Y[column_index].append(column_count)
         current_day += timedelta(days=1)
 
-    plt.stackplot(dates, *Y, baseline="zero")
+    polys = plt.stackplot(dates, *Y, baseline="zero")
+
+    column_names = [c['name'] for c in CONFIG['columns'][1:]]
+    column_names.append('Done')
+    legend_proxies = []
+    for i, poly in enumerate(polys):
+        legend_proxies.append(mpatches.Patch(color=poly.get_facecolor()[0], label=column_names[i]))
+    plt.legend(handles=legend_proxies)
     plt.title("Cumulative Flow %s to %s" % (args.start_date.strftime(DATE_FORMAT), args.end_date.strftime(DATE_FORMAT)))
     plt.axis('tight')
     plt.show()
