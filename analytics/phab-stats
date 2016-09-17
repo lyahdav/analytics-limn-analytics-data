@@ -244,6 +244,8 @@ def calculate_tasks_resolved(tasks, args):
     return tasks_resolved
 
 def calculate_timedeltas_average(timedeltas):
+    if len(timedeltas) == 0:
+        return None
     seconds_list = [t.total_seconds() for t in timedeltas]
     average_seconds = sum(seconds_list) / float(len(seconds_list))
     return timedelta(seconds=average_seconds)
