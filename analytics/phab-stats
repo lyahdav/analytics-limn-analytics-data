@@ -426,14 +426,14 @@ class HtmlGenerator(object):
         self.tasks_resolved = calculate_tasks_resolved(tasks, args)
 
         body = """
-            <div class="container" style="width:100%%">
+            <div class="container" style="width: 100%%; margin: 15px;">
                 <h2>Completed tasks (%d)</h2>
                 <p>%s to %s</p>
                 %s
                 <h2>Statistics</h2>
                 %s
                 <h2>Cumulative Flow Diagram</h2>
-                <div id="chart" />
+                <div id="chart" style="width: 90%%;margin: auto;" />
                 %s
             </div>
         """ % (self.tasks_resolved,
@@ -509,6 +509,7 @@ class HtmlGenerator(object):
         column_names.append('Done')
         column_count = len(column_names)
 
+        dates = []
         columns = [[] for _ in range(column_count)]
         done_column = get_done_column(self.tasks, self.args)
         days_in_range = (self.args.end_date - self.args.start_date).days
@@ -517,18 +518,33 @@ class HtmlGenerator(object):
             column_counts = column_counts_for_day(current_day, tasks, done_column, args.start_date)
             for column_index, column_count in enumerate(column_counts):
                 columns[column_index].append(column_count)
+            dates.append(current_day.strftime(DATE_FORMAT))
             current_day += timedelta(days=1)
 
+        # prepend column name to each column of data
         columns = [[column_names[i]] + column for i, column in enumerate(columns)]
+
+        x_axis = ['x'] + dates
+        columns = [x_axis] + columns
+
         types = dict((column_name, 'area') for column_name in column_names)
         script = """
             <script type="text/javascript">
             var chart = c3.generate({
                 data: {
+                    x: 'x',
                     columns: %s,
                     types: %s,
                     groups: [%s],
                     order: null
+                },
+                axis: {
+                  x: {
+                    type: 'timeseries',
+                    tick: {
+                      format: '%%Y-%%m-%%d'
+                    }
+                  }
                 }
             });
             </script>
