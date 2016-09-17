@@ -16,6 +16,7 @@ Assumptions:
 - Tasks are completed with the "resolved" status (if tasks are completed with other statuses, e.g. wontfix/invalid, the task won't be considered completed for calculations)
 - First column in `phab-stats-config.json` is your icebox and will be excluded from CFD
 - CFD data will only be accurate if tasks are never moved backward in your workboard
+- The last task transaction returned by the Phab API is when the task was created
 
 Troubleshooting:
 - If you have issues with matplotlib and virtualenv, see http://matplotlib.org/faq/virtualenv_faq.html.

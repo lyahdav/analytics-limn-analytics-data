@@ -252,7 +252,9 @@ def calculate_timedeltas_average(timedeltas):
         return None
     seconds_list = [t.total_seconds() for t in timedeltas]
     average_seconds = sum(seconds_list) / float(len(seconds_list))
-    return timedelta(seconds=average_seconds)
+    average_timedelta = timedelta(seconds=average_seconds)
+    average_timedelta -= timedelta(microseconds=average_timedelta.microseconds)
+    return average_timedelta
 
 def calculate_points_moved_to_the_right(tasks, args):
     """
@@ -517,20 +519,6 @@ class HtmlGenerator(object):
                 columns[column_index].append(column_count)
             current_day += timedelta(days=1)
 
-    # days_in_range = (args.end_date - args.start_date).days
-    # dates = [(args.start_date + timedelta(days=d)) for d in range(days_in_range)]
-    # column_count = len(CONFIG['columns'])
-    # Y = [[] for _ in range(column_count)]
-    # current_day = args.start_date
-    # done_column = get_done_column(tasks, args)
-    # for day_index in range(days_in_range):
-    #     column_counts = column_counts_for_day(current_day, tasks, done_column, args.start_date)
-    #     for column_index, column_count in enumerate(column_counts):
-    #         Y[column_index].append(column_count)
-    #     current_day += timedelta(days=1)
-
-        # column_names = ['data1', 'data2']
-        # columns = [[300, 350, 300, 0, 0, 120],[130, 100, 140, 200, 150, 50] ]
         columns = [[column_names[i]] + column for i, column in enumerate(columns)]
         types = dict((column_name, 'area') for column_name in column_names)
         script = """
@@ -554,22 +542,26 @@ class HtmlGenerator(object):
         days_per_week = 7
         throughput = (self.tasks_resolved / float(days_in_range)) * days_per_week
         return """
-            <table style="width: 450px">
+            <table style="width: 700px">
                 <tr>
-                    <th>Stat</th>
+                    <th>Statistic</th>
                     <th>Value</th>
+                    <th>Description</th>
                 </tr>
                 <tr>
-                    <td>Average cycle time</td>
+                    <td>Cycle time</td>
                     <td>%s</td>
+                    <td>Average time between when task was moved to In Progress column and when it was resolved</td>
                 </tr>
                 <tr>
-                    <td>Average lead time</td>
+                    <td>Lead time</td>
                     <td>%s</td>
+                    <td>Average time between when task was created and when it was resolved</td>
                 </tr>
                 <tr>
-                    <td>Tasks completed per week (throughput)</td>
+                    <td>Throughput</td>
                     <td>%.1f</td>
+                    <td>Average number of tasks completed per week</td>
                 </tr>
             </table>
             """ % (average_cycle_time, average_lead_time, throughput)
