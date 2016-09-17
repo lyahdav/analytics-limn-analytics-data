@@ -38,10 +38,13 @@ def parse_arguments():
         default=os.path.join(this_file_dir, 'phab-stats-config.json'))
     parser.add_argument('--html',
         action='store_true',
-        help='Generate output.html file instead of outputting to standard out.')
+        help='Generate HTML file instead of outputting to standard out.')
     parser.add_argument('--open',
         action='store_true',
         help='If using --html, open the html file after generating.')
+    parser.add_argument('--html-file',
+        default='output.html',
+        help='Output HTML file name. Default: output.html')
     return parser.parse_args()
 
 
@@ -355,12 +358,12 @@ def generate_html(tasks, args):
     generator = HtmlGenerator(tasks, args)
     html = generator.html()
 
-    text_file = open("output.html", "w")
+    text_file = open(args.html_file, "w")
     text_file.write(html)
     text_file.close()
 
     if args.open:
-        os.system("open output.html")
+        os.system("open " + args.html_file)
 
 class HtmlGenerator(object):
     def __init__(self, tasks, args):
