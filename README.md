@@ -6,8 +6,9 @@ This is a fork of https://github.com/wikimedia/analytics-limn-analytics-data tha
 - Generate HTML output with `--html` argument. Uses `C3.js` for generating HTML CFD: ![CFD HTML](CFD_Html.png)
 - `phab-stats-config.json` is git ignored (as it should be). Instead copy `phab-stats-config.sample` to `phab-stats-config.json` and modify accordingly.
 - Remove all computation related to points (not used in Kanban)
-- Added script `phab_report.py` (adapted from [this gist](https://gist.github.com/robwiss/9c7e2bcf2af063635288), mentioned in [this task](https://secure.phabricator.com/T5214)) that lists all tasks in a given workboard column.
-  - Usage: `./phab_report.py --project 'My Project' --column 'My Column'`
+- Added script `phab_report` (adapted from [this gist](https://gist.github.com/robwiss/9c7e2bcf2af063635288), mentioned in [this task](https://secure.phabricator.com/T5214)) that lists all tasks in a given workboard column.
+  - Usage: `./phab_report --project 'My Project' --column 'My Column'`
+  - Run this script with the `--print-ids` argument to get your project and column IDs for use in `phab-stats-config.json`.
   - This script currently cannot determine the column of a task that was never moved between columns.
 
 Assumptions:
@@ -16,14 +17,12 @@ Assumptions:
 - The end date passed in args to the script is exclusive (i.e. tasks completed exactly on that date will be ignored in calculations)
 - Tasks are created in the backlog (e.g. if tasks are created in the In Progress column directly, the script won't be able to determine a start date)
 - Tasks are completed with the "resolved" status (if tasks are completed with other statuses, e.g. wontfix/invalid, the task won't be considered completed for calculations)
-- First column in `phab-stats-config.json` (with value=0) is your icebox and will be excluded from CFD
+- The first column in `phab-stats-config.json` (with value=0) is your icebox and will be excluded from CFD
 - CFD data will only be accurate if tasks are never moved backward in your workboard
 - The last task transaction returned by the Phab API is when the task was created
 
 Troubleshooting:
-- If you have issues with matplotlib and virtualenv, see http://matplotlib.org/faq/virtualenv_faq.html.
-- Getting column IDs for `phab-stats-config.json` is kind of a pain now. To get them you can run `curl https://your_phab.example.com/api/maniphest.gettasktransactions -d api.token=your_token -d ids[0]=some_task_id` and look at the `columnPHIDs` (you have to remember where you moved tasks from/to). Get your API token from the `~/.arcrc` file.
-- Getting the PHID of the project for `phab-stats-config.json` is kind of a pain now too. Follow http://stackoverflow.com/a/25754181/62 for now.
+- If you have issues with matplotlib and virtualenv, see http://matplotlib.org/faq/virtualenv_faq.html. Or just use the `--html` argument.
 
 #Usage
 ```

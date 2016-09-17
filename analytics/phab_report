@@ -47,7 +47,7 @@ def find_first(iterable, f):
             raise StopIteration
     raise StopIteration
 
-def conduit_tasks(projPHID):
+def conduit_tasks(projPHID, args):
     result = execute_apicall(
         'maniphest.query',
         {
@@ -76,6 +76,10 @@ def conduit_tasks(projPHID):
             all_columnPHIDs.add(latest_column_id[0])
 
     columnPHID_lookup = conduit_phidlookup(list(all_columnPHIDs))
+    if args.print_ids:
+        print('Column IDs:')
+        print(json.dumps(columnPHID_lookup, indent=4, separators=(',', ': ')))
+        return []
 
     tasks = []
 
@@ -132,6 +136,9 @@ def parse_arguments():
     parser.add_argument('--project',
         help='Name of project to report on',
         required=True)
+    parser.add_argument('--print-ids',
+        action='store_true',
+        help='Only print PHIDs of project and workboard columns. Useful for phab-stats')
     return parser.parse_args()
 
 def main():
@@ -141,9 +148,11 @@ def main():
 
     # get project PHID
     projPHID = conduit_projPHID(project_name)
+    if args.print_ids:
+        print('Project ID: %s' % projPHID)
 
     # get task PHIDs for project
-    tasks = conduit_tasks(projPHID)
+    tasks = conduit_tasks(projPHID, args)
 
     # prune to tasks in certain column
     tasks = filter(lambda x: x['column'] == column_name, tasks)
