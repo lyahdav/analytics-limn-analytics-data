@@ -1,4 +1,5 @@
 {
+    "phab_base_url": "https://example.com/",
     "workboard": "PHID-PROJ-someID",
     "columns": [{
             "name": "Icebox",

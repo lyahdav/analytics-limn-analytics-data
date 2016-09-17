@@ -473,6 +473,8 @@ class HtmlGenerator(object):
                     cycle_time = 'None'.ljust(20)
                 self.lead_times.append(task.lead_time())
                 lead_time = str(self.lead_times[-1]).ljust(20)
+                task_url = '%sT%s' % (CONFIG['phab_base_url'], task.id)
+                task_id_link = '<a href=%s>T%s</a>' % (task_url, task.id)
                 table_rows += """
                     <tr>
             			<td>%s</td>
@@ -483,7 +485,7 @@ class HtmlGenerator(object):
             			<td>%s</td>
             			<td>%s</td>
             		</tr>
-                """ % (task.id, created_date, start_date, task.resolved_date(), cycle_time, lead_time, task.name)
+                """ % (task_id_link, created_date, start_date, task.resolved_date(), cycle_time, lead_time, task.name)
         table = """
         	<table>
         		<tr>
