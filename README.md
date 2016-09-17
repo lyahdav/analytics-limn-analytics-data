@@ -3,7 +3,7 @@ This is a fork of https://github.com/wikimedia/analytics-limn-analytics-data tha
 - Lists all completed task created dates, start dates, end dates, cycle time (time from start to end), lead time (time from creation to end)
 - Computes average cycle time, lead time, and throughput
 - Generates a CFD (Cumulative Flow Diagram) via `matplotlib`: ![CFD](CFD.png)
-
+- Generate HTML output with `--html` argument. Uses `C3.js` for generating HTML CFD: ![CFD HTML](CFD_Html.png)
 - `phab-stats-config.json` is git ignored (as it should be). Instead copy `phab-stats-config.sample` to `phab-stats-config.json` and modify accordingly.
 - Remove all computation related to points (not used in Kanban)
 
