@@ -10,7 +10,6 @@ This is a fork of https://github.com/wikimedia/analytics-limn-analytics-data tha
 Assumptions:
 - When tasks are complete they are resolved in Phabricator and kept in the same workboard; there is no "Done" column in your workboard
 - Task start date assumes the task was moved to the in progress column at some point
-- In progress column must have value 2 in `phab-stats-config.json`
 - The end date passed in args to the script is exclusive (i.e. tasks completed exactly on that date will be ignored in calculations)
 - Tasks are created in the backlog (e.g. if tasks are created in the In Progress column directly, the script won't be able to determine a start date)
 - Tasks are completed with the "resolved" status (if tasks are completed with other statuses, e.g. wontfix/invalid, the task won't be considered completed for calculations)

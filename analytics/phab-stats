@@ -19,7 +19,6 @@ import requests
 from datetime import datetime, timedelta
 
 DATE_FORMAT = '%Y-%m-%d'
-IN_PROGRESS_COLUMN_VALUE = 2
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -132,7 +131,7 @@ class Task(object):
         for transaction in self.transactions:
             if transaction['transactionType'] == 'projectcolumn':
                 columns = self.get_transaction_columns(transaction)
-                if columns['newValue'] == IN_PROGRESS_COLUMN_VALUE:
+                if columns['newValue'] == CONFIG['in_progress_column_value']:
                     timestamp = int(transaction['dateCreated'])
                     self.cached_start_date = datetime.fromtimestamp(timestamp)
                     return self.cached_start_date

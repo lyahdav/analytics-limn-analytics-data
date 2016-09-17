@@ -21,6 +21,7 @@
             "name": "Sign off",
             "phid": "PHID-PCOL-someID",
             "value": 4
-        }
+        },
     ],
+    "in_progress_column_value": 2
 }
