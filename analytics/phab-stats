@@ -428,9 +428,10 @@ class HtmlGenerator(object):
                 <h2>Completed tasks (%d)</h2>
                 <p>%s to %s</p>
                 %s
+                <h2>Statistics</h2>
+                %s
                 <h2>Cumulative Flow Diagram</h2>
                 <div id="chart" />
-                %s
                 %s
             </div>
         """ % (self.tasks_resolved,
@@ -551,9 +552,24 @@ class HtmlGenerator(object):
         days_per_week = 7
         throughput = (self.tasks_resolved / float(days_in_range)) * days_per_week
         return """
-            <p>Average cycle time: %s</p>
-            <p>Average lead time: %s</p>
-            <p>Tasks completed per week (throughput): %.1f</p>
+            <table style="width: 450px">
+                <tr>
+                    <th>Stat</th>
+                    <th>Value</th>
+                </tr>
+                <tr>
+                    <td>Average cycle time</td>
+                    <td>%s</td>
+                </tr>
+                <tr>
+                    <td>Average lead time</td>
+                    <td>%s</td>
+                </tr>
+                <tr>
+                    <td>Tasks completed per week (throughput)</td>
+                    <td>%.1f</td>
+                </tr>
+            </table>
             """ % (average_cycle_time, average_lead_time, throughput)
 
 if __name__ == '__main__':
