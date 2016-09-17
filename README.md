@@ -6,6 +6,9 @@ This is a fork of https://github.com/wikimedia/analytics-limn-analytics-data tha
 - Generate HTML output with `--html` argument. Uses `C3.js` for generating HTML CFD: ![CFD HTML](CFD_Html.png)
 - `phab-stats-config.json` is git ignored (as it should be). Instead copy `phab-stats-config.sample` to `phab-stats-config.json` and modify accordingly.
 - Remove all computation related to points (not used in Kanban)
+- Added script `phab_report.py` (adapted from [this gist](https://gist.github.com/robwiss/9c7e2bcf2af063635288), mentioned in [this task](https://secure.phabricator.com/T5214)) that lists all tasks in a given workboard column.
+  - Usage: `./phab_report.py --project 'My Project' --column 'My Column'`
+  - This script currently cannot determine the column of a task that was never moved between columns.
 
 Assumptions:
 - When tasks are complete they are resolved in Phabricator and kept in the same workboard; there is no "Done" column in your workboard
@@ -13,7 +16,7 @@ Assumptions:
 - The end date passed in args to the script is exclusive (i.e. tasks completed exactly on that date will be ignored in calculations)
 - Tasks are created in the backlog (e.g. if tasks are created in the In Progress column directly, the script won't be able to determine a start date)
 - Tasks are completed with the "resolved" status (if tasks are completed with other statuses, e.g. wontfix/invalid, the task won't be considered completed for calculations)
-- First column in `phab-stats-config.json` is your icebox and will be excluded from CFD
+- First column in `phab-stats-config.json` (with value=0) is your icebox and will be excluded from CFD
 - CFD data will only be accurate if tasks are never moved backward in your workboard
 - The last task transaction returned by the Phab API is when the task was created
 
