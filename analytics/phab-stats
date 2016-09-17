@@ -286,25 +286,38 @@ def print_cfd_table(tasks, args):
     """
 
     column_headers = '\t'.join(c['name'].ljust(15) for c in CONFIG['columns'][1:])
+    column_headers += '\tDone'
     print('Date\t\t' + column_headers)
     days_in_range = (args.end_date - args.start_date).days
     current_day = args.start_date
+    done_column = get_done_column(tasks, args)
     for i in range(days_in_range):
-        column_counts = joined_column_counts_for_day(current_day, tasks)
+        column_counts = joined_column_counts_for_day(current_day, tasks, done_column, args.start_date)
         print(current_day.strftime(DATE_FORMAT) + '\t' + column_counts)
         current_day += timedelta(days=1)
 
-def joined_column_counts_for_day(day, tasks):
-    return '\t'.join(str(c).ljust(15) for c in column_counts_for_day(day, tasks))
+def get_done_column(tasks, args):
+    days_in_range = (args.end_date - args.start_date).days
+    done_column = [0] * days_in_range
+    for task in tasks:
+        if task.is_resolved and task.resolved_between(args.start_date, args.end_date):
+            start_fill_index = (task.resolved_date() - args.start_date).days
+            for i in range(start_fill_index, days_in_range):
+                done_column[i] += 1
+    return done_column
+
+def joined_column_counts_for_day(day, tasks, done_column, start_date):
+    return '\t'.join(str(c).ljust(15) for c in column_counts_for_day(day, tasks, done_column, start_date))
 
 def show_cfd(tasks, args):
     days_in_range = (args.end_date - args.start_date).days
     dates = [(args.start_date + timedelta(days=d)) for d in range(days_in_range)]
-    column_count = len(CONFIG['columns']) - 1
+    column_count = len(CONFIG['columns'])
     Y = [[] for _ in range(column_count)]
     current_day = args.start_date
+    done_column = get_done_column(tasks, args)
     for day_index in range(days_in_range):
-        column_counts = column_counts_for_day(current_day, tasks)
+        column_counts = column_counts_for_day(current_day, tasks, done_column, args.start_date)
         for column_index, column_count in enumerate(column_counts):
             Y[column_index].append(column_count)
         current_day += timedelta(days=1)
@@ -314,7 +327,7 @@ def show_cfd(tasks, args):
     plt.axis('tight')
     plt.show()
 
-def column_counts_for_day(day, tasks):
+def column_counts_for_day(day, tasks, done_column, start_date):
     column_counts = [0] * (len(CONFIG['columns']) - 1)
     for task in tasks:
         if task.is_resolved:
@@ -322,6 +335,8 @@ def column_counts_for_day(day, tasks):
         column_value = task.column_at(day)
         if column_value >= 1:
             column_counts[column_value - 1] += 1
+    day_index = (day - start_date).days
+    column_counts.append(done_column[day_index])
     return column_counts
 
 
