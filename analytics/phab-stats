@@ -424,16 +424,18 @@ class HtmlGenerator(object):
         self.tasks_resolved = calculate_tasks_resolved(tasks, args)
 
         body = """
-            <p>Dates: %s to %s</p>
-            <p>Completed tasks (%d):</p>
-            %s
-            <h1>Cumulative Flow Diagram</h1>
-            <div id="chart" />
-            %s
-            %s
-        """ % (args.start_date.strftime(DATE_FORMAT),
+            <div class="container" style="width:100%%">
+                <h2>Completed tasks (%d)</h2>
+                <p>%s to %s</p>
+                %s
+                <h2>Cumulative Flow Diagram</h2>
+                <div id="chart" />
+                %s
+                %s
+            </div>
+        """ % (self.tasks_resolved,
+            args.start_date.strftime(DATE_FORMAT),
             args.end_date.strftime(DATE_FORMAT),
-            self.tasks_resolved,
             self.get_table(),
             self.get_aggregate_stats(),
             self.get_chart_script())
@@ -441,7 +443,13 @@ class HtmlGenerator(object):
         html = """
             <html>
               <head>
-                <link href="c3.min.css" rel="stylesheet" type="text/css">
+                <link rel="stylesheet" href="css/blueprint/screen.css" type="text/css" media="screen, projection">
+                <link rel="stylesheet" href="css/blueprint/print.css" type="text/css" media="print">
+                <!--[if lt IE 8]>
+                  <link rel="stylesheet" href="css/blueprint/ie.css" type="text/css" media="screen, projection">
+                <![endif]-->
+
+                <link href="css/c3.min.css" rel="stylesheet" type="text/css">
                 <script type="text/javascript" src="http://d3js.org/d3.v3.js"></script>
                 <script type="text/javascript" src="c3.min.js"></script>
               </head>
