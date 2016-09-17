@@ -1,0 +1,26 @@
+{
+    "workboard": "PHID-PROJ-someID",
+    "columns": [{
+            "name": "Icebox",
+            "phid": "PHID-PCOL-someID",
+            "value": 0
+        }, {
+            "name": "Backlog",
+            "phid": "PHID-PCOL-someID",
+            "value": 1
+        }, {
+            "name": "In Progress",
+            "phid": "PHID-PCOL-someID",
+            "value": 2
+        }, {
+            "name": "Code Review",
+            "phid": "PHID-PCOL-someID",
+            "value": 3
+        }, {
+            "name": "Sign off",
+            "phid": "PHID-PCOL-someID",
+            "value": 4
+        }
+    ],
+    "default_points": 1
+}

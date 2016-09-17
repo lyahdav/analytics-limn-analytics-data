@@ -16,12 +16,10 @@ import argparse
 import json
 import phabricator
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
-
-WORKBOARD_URL_TEMPLATE = 'https://phabricator.wikimedia.org/project/board/%s/query/all/'
 DATE_FORMAT = '%Y-%m-%d'
-
+IN_PROGRESS_COLUMN_VALUE = 2
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -73,6 +71,8 @@ class Task(object):
         # The following fields depend on the transactions to be calculated.
         self.column = None
         self.points = None
+        self.cached_start_date = None
+        self.cached_resolved_date = None
 
     def set_transactions(self, transactions):
         """
@@ -100,16 +100,51 @@ class Task(object):
         """
         Returns True if the task was resolved between the two dates.
         """
+        resolved_date = self.resolved_date()
+        if resolved_date:
+            return (
+                resolved_date >= start_date and
+                resolved_date < end_date
+            )
+        else:
+            return False
+
+    def resolved_date(self):
+        """
+        Returns date when task was resolved.
+        Returns None if not resolved.
+        """
+
+        if self.cached_resolved_date:
+            return self.cached_resolved_date
+
         for transaction in self.transactions:
             if (transaction['transactionType'] == 'status' and
                     transaction['newValue'] == 'resolved'):
                 timestamp = int(transaction['dateCreated'])
-                transaction_date = datetime.fromtimestamp(timestamp)
-                return (
-                    transaction_date >= start_date and
-                    transaction_date < end_date
-                )
-        return False
+                self.cached_resolved_date = datetime.fromtimestamp(timestamp)
+                return self.cached_resolved_date
+        return None
+
+    def start_date(self):
+        """
+        Returns date when task was put into In Progress column.
+        If task was never moved to In Progress, returns None.
+        """
+        if self.cached_start_date:
+            return self.cached_start_date
+
+        for transaction in self.transactions:
+            if transaction['transactionType'] == 'projectcolumn':
+                columns = self.get_transaction_columns(transaction)
+                if columns['newValue'] == IN_PROGRESS_COLUMN_VALUE:
+                    timestamp = int(transaction['dateCreated'])
+                    self.cached_start_date = datetime.fromtimestamp(timestamp)
+                    return self.cached_start_date
+        return None
+
+    def cycle_time(self):
+        return self.resolved_date() - self.start_date()
 
     def column_at(self, date):
         """
@@ -183,6 +218,10 @@ def calculate_points_resolved(tasks, args):
             points_resolved += task.points or CONFIG['default_points']
     return points_resolved
 
+def calculate_average_cycle_time(cycle_times):
+    cycle_times_seconds = [t.total_seconds() for t in cycle_times]
+    average_seconds = sum(cycle_times_seconds) / float(len(cycle_times_seconds))
+    return timedelta(seconds=average_seconds)
 
 def calculate_points_moved_to_the_right(tasks, args):
     """
@@ -217,6 +256,12 @@ def calculate_average_steps(tasks, args):
             resolved_count += 1
     return steps_count / float(resolved_count) if resolved_count > 0 else 0
 
+def calculate_developer_cycle_time(tasks, args):
+    """
+    Returns the average time it took a task resolved between args.start_date
+    and args.end_date to go from In Progress to Resolved.
+    """
+    return 0
 
 if __name__ == '__main__':
     args = parse_arguments()
@@ -238,21 +283,29 @@ if __name__ == '__main__':
     for task in tasks:
         task.set_transactions(transactions[task.id])
 
+    cycle_times = []
+
     # Print the interval tasks.
+    print('Date: %s - %s' % (args.start_date.strftime(DATE_FORMAT), args.end_date.strftime(DATE_FORMAT)))
+    print('Completed Tasks:')
+    print('ID\tStart Date\t\tEnd Date\t\tCycle Time\t\tTask')
     for task in tasks:
         if task.resolved_between(args.start_date, args.end_date):
-            print "<%d>\t%s" % (task.points or CONFIG['default_points'], task.name)
+            cycle_times.append(task.cycle_time())
+            cycle_time = str(cycle_times[-1]).ljust(20)
+            print "%s\t%s\t%s\t%s\t%s" % (task.id, task.start_date(), task.resolved_date(), cycle_time, task.name)
 
     # Calculate the metrics.
     points_resolved = calculate_points_resolved(tasks, args)
+    average_cycle_time = calculate_average_cycle_time(cycle_times)
     points_moved = calculate_points_moved_to_the_right(tasks, args)
     average_steps = calculate_average_steps(tasks, args)
+    developer_cycle_time = calculate_developer_cycle_time(tasks, args)
 
     # Write output.
-    print('Date\tPoints resolved\tPoints moved to the right\tAverage steps')
-    print('%s\t%d\t%.1f\t%.2f' % (
-        args.start_date.strftime(DATE_FORMAT),
-        points_resolved,
-        points_moved,
-        average_steps
-    ))
+    print('')
+    print('Tasks completed: %d' % points_resolved)
+    print('Average cycle time: %s' % average_cycle_time)
+    print('Tasks moved to the right: %.1f' % points_moved)
+    print('Average steps: %.2f' % average_steps)
+    # print('Average developer cycle time: %.2f' % developer_cycle_time)
