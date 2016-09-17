@@ -17,6 +17,7 @@ import json
 import phabricator
 import requests
 from datetime import datetime, timedelta
+import pylab as plt
 
 DATE_FORMAT = '%Y-%m-%d'
 IN_PROGRESS_COLUMN_VALUE = 2
@@ -73,6 +74,8 @@ class Task(object):
         self.points = None
         self.cached_start_date = None
         self.cached_resolved_date = None
+        self.cached_created_date = None
+        self.is_resolved = None
 
     def set_transactions(self, transactions):
         """
@@ -82,6 +85,9 @@ class Task(object):
         self.transactions = transactions
         self.column = self.column_at('now')
         self.points = self.parse_points()
+
+        # force is_resolved to get set
+        self.resolved_date() # TODO find a cleaner way to do this
 
     def parse_points(self):
         """
@@ -123,7 +129,9 @@ class Task(object):
                     transaction['newValue'] == 'resolved'):
                 timestamp = int(transaction['dateCreated'])
                 self.cached_resolved_date = datetime.fromtimestamp(timestamp)
+                self.is_resolved = True
                 return self.cached_resolved_date
+        self.is_resolved = False
         return None
 
     def start_date(self):
@@ -145,6 +153,22 @@ class Task(object):
 
     def cycle_time(self):
         return self.resolved_date() - self.start_date()
+
+    def lead_time(self):
+        return self.resolved_date() - self.created_date()
+
+    def created_date(self):
+        """
+        Returns date when task was created.
+        """
+        if self.cached_created_date:
+            return self.cached_created_date
+
+        transaction = self.transactions[-1]
+        timestamp = int(transaction['dateCreated'])
+        self.cached_created_date = datetime.fromtimestamp(timestamp)
+        return self.cached_created_date
+
 
     def column_at(self, date):
         """
@@ -207,20 +231,20 @@ class Task(object):
         return column_values
 
 
-def calculate_points_resolved(tasks, args):
+def calculate_tasks_resolved(tasks, args):
     """
-    Returns the sum of task points in all tasks that have been
+    Returns the number of tasks that have been
     marked as resolved between args.start_date and args.end_date.
     """
-    points_resolved = 0
+    tasks_resolved = 0
     for task in tasks:
         if task.resolved_between(args.start_date, args.end_date):
-            points_resolved += task.points or CONFIG['default_points']
-    return points_resolved
+            tasks_resolved += 1
+    return tasks_resolved
 
-def calculate_average_cycle_time(cycle_times):
-    cycle_times_seconds = [t.total_seconds() for t in cycle_times]
-    average_seconds = sum(cycle_times_seconds) / float(len(cycle_times_seconds))
+def calculate_timedeltas_average(timedeltas):
+    seconds_list = [t.total_seconds() for t in timedeltas]
+    average_seconds = sum(seconds_list) / float(len(seconds_list))
     return timedelta(seconds=average_seconds)
 
 def calculate_points_moved_to_the_right(tasks, args):
@@ -256,12 +280,50 @@ def calculate_average_steps(tasks, args):
             resolved_count += 1
     return steps_count / float(resolved_count) if resolved_count > 0 else 0
 
-def calculate_developer_cycle_time(tasks, args):
+def print_cfd_table(tasks, args):
     """
-    Returns the average time it took a task resolved between args.start_date
-    and args.end_date to go from In Progress to Resolved.
+    Prints CFD (Cumulative Flow Diagram) table
     """
-    return 0
+
+    column_headers = '\t'.join(c['name'].ljust(15) for c in CONFIG['columns'][1:])
+    print('Date\t\t' + column_headers)
+    days_in_range = (args.end_date - args.start_date).days
+    current_day = args.start_date
+    for i in range(days_in_range):
+        column_counts = joined_column_counts_for_day(current_day, tasks)
+        print(current_day.strftime(DATE_FORMAT) + '\t' + column_counts)
+        current_day += timedelta(days=1)
+
+def joined_column_counts_for_day(day, tasks):
+    return '\t'.join(str(c).ljust(15) for c in column_counts_for_day(day, tasks))
+
+def show_cfd(tasks, args):
+    days_in_range = (args.end_date - args.start_date).days
+    dates = [(args.start_date + timedelta(days=d)) for d in range(days_in_range)]
+    column_count = len(CONFIG['columns']) - 1
+    Y = [[] for _ in range(column_count)]
+    current_day = args.start_date
+    for day_index in range(days_in_range):
+        column_counts = column_counts_for_day(current_day, tasks)
+        for column_index, column_count in enumerate(column_counts):
+            Y[column_index].append(column_count)
+        current_day += timedelta(days=1)
+
+    plt.stackplot(dates, *Y, baseline="zero")
+    plt.title("Cumulative Flow %s to %s" % (args.start_date.strftime(DATE_FORMAT), args.end_date.strftime(DATE_FORMAT)))
+    plt.axis('tight')
+    plt.show()
+
+def column_counts_for_day(day, tasks):
+    column_counts = [0] * (len(CONFIG['columns']) - 1)
+    for task in tasks:
+        if task.is_resolved:
+            continue
+        column_value = task.column_at(day)
+        if column_value >= 1:
+            column_counts[column_value - 1] += 1
+    return column_counts
+
 
 if __name__ == '__main__':
     args = parse_arguments()
@@ -284,28 +346,42 @@ if __name__ == '__main__':
         task.set_transactions(transactions[task.id])
 
     cycle_times = []
+    lead_times = []
 
-    # Print the interval tasks.
+    # Calculate the metrics
+    tasks_resolved = calculate_tasks_resolved(tasks, args)
+    days_in_range = (args.end_date - args.start_date).days
+    days_per_week = 7
+    throughput = (tasks_resolved / float(days_in_range)) * days_per_week
+
+    # Print task stats
     print('Date: %s - %s' % (args.start_date.strftime(DATE_FORMAT), args.end_date.strftime(DATE_FORMAT)))
-    print('Completed Tasks:')
-    print('ID\tStart Date\t\tEnd Date\t\tCycle Time\t\tTask')
+    print('Completed Tasks (%d):' % tasks_resolved)
+    print('ID\tCreated Date\t\tStart Date\t\tEnd Date\t\tCycle Time\t\tLead Time\t\tTask')
     for task in tasks:
         if task.resolved_between(args.start_date, args.end_date):
-            cycle_times.append(task.cycle_time())
-            cycle_time = str(cycle_times[-1]).ljust(20)
-            print "%s\t%s\t%s\t%s\t%s" % (task.id, task.start_date(), task.resolved_date(), cycle_time, task.name)
+            created_date = str(task.created_date()).ljust(20)
+            start_date = str(task.start_date()).ljust(20)
+            if task.start_date():
+                cycle_times.append(task.cycle_time())
+                cycle_time = str(cycle_times[-1]).ljust(20)
+            else:
+                cycle_time = 'None'.ljust(20)
+            lead_times.append(task.lead_time())
+            lead_time = str(lead_times[-1]).ljust(20)
+            print "%s\t%s\t%s\t%s\t%s\t%s\t%s" % (task.id, created_date, start_date, task.resolved_date(), cycle_time, lead_time, task.name)
 
-    # Calculate the metrics.
-    points_resolved = calculate_points_resolved(tasks, args)
-    average_cycle_time = calculate_average_cycle_time(cycle_times)
-    points_moved = calculate_points_moved_to_the_right(tasks, args)
-    average_steps = calculate_average_steps(tasks, args)
-    developer_cycle_time = calculate_developer_cycle_time(tasks, args)
+    average_cycle_time = calculate_timedeltas_average(cycle_times)
+    average_lead_time = calculate_timedeltas_average(lead_times)
 
-    # Write output.
     print('')
-    print('Tasks completed: %d' % points_resolved)
+    print_cfd_table(tasks, args)
+
+    # Print aggregate stats
+    print('')
     print('Average cycle time: %s' % average_cycle_time)
-    print('Tasks moved to the right: %.1f' % points_moved)
-    print('Average steps: %.2f' % average_steps)
-    # print('Average developer cycle time: %.2f' % developer_cycle_time)
+    print('Average lead time: %s' % average_lead_time)
+    print('Tasks completed per week (throughput): %.1f' % throughput)
+    print('Note: average cycle time ignores tasks without a start date')
+
+    show_cfd(tasks, args)
