@@ -17,8 +17,6 @@ import json
 import phabricator
 import requests
 from datetime import datetime, timedelta
-import pylab as plt
-import matplotlib.patches as mpatches
 
 DATE_FORMAT = '%Y-%m-%d'
 IN_PROGRESS_COLUMN_VALUE = 2
@@ -39,6 +37,12 @@ def parse_arguments():
     parser.add_argument('--config',
         help='Location of the config file. Default: phab-stats-config.json.',
         default=os.path.join(this_file_dir, 'phab-stats-config.json'))
+    parser.add_argument('--html',
+        action='store_true',
+        help='Generate output.html file instead of outputting to standard out.')
+    parser.add_argument('--open',
+        action='store_true',
+        help='If using --html, open the html file after generating.')
     return parser.parse_args()
 
 
@@ -316,6 +320,9 @@ def show_cfd(tasks, args):
     """
     Render cumulative flow diagram
     """
+    import pylab as plt
+    import matplotlib.patches as mpatches
+
     days_in_range = (args.end_date - args.start_date).days
     dates = [(args.start_date + timedelta(days=d)) for d in range(days_in_range)]
     column_count = len(CONFIG['columns'])
@@ -352,27 +359,7 @@ def column_counts_for_day(day, tasks, done_column, start_date):
     column_counts.append(done_column[day_index])
     return column_counts
 
-
-if __name__ == '__main__':
-    args = parse_arguments()
-    CONFIG = get_config(args)
-
-    # Create the Phabricator API wrapper.
-    phab = phabricator.Phabricator(timeout=500)
-
-    # Get the tasks belonging to the given board.
-    api_tasks = phab.maniphest.query(projectPHIDs=[CONFIG['workboard']])
-    tasks = [
-        Task(api_tasks[task_id]['id'], api_tasks[task_id]['title'])
-        for task_id in api_tasks  # .values() not implemented
-    ]
-
-    # Decorate the tasks with their transactions.
-    task_ids = [int(task.id) for task in tasks]
-    transactions = phab.maniphest.gettasktransactions(ids=task_ids)
-    for task in tasks:
-        task.set_transactions(transactions[task.id])
-
+def print_results(tasks, args):
     cycle_times = []
     lead_times = []
 
@@ -413,3 +400,175 @@ if __name__ == '__main__':
     print('Note: average cycle time ignores tasks without a start date')
 
     show_cfd(tasks, args)
+
+def generate_html(tasks, args):
+    generator = HtmlGenerator(tasks, args)
+    html = generator.html()
+
+    text_file = open("output.html", "w")
+    text_file.write(html)
+    text_file.close()
+
+    if args.open:
+        os.system("open output.html")
+
+class HtmlGenerator(object):
+    def __init__(self, tasks, args):
+        self.tasks = tasks
+        self.args = args
+        self.cycle_times = [] # TODO handle resetting these if reusing html method
+        self.lead_times = []
+        self.tasks_resolved = 0
+
+    def html(self):
+        self.tasks_resolved = calculate_tasks_resolved(tasks, args)
+
+        body = """
+            <p>Dates: %s to %s</p>
+            <p>Completed tasks (%d):</p>
+            %s
+            <h1>Cumulative Flow Diagram</h1>
+            <div id="chart" />
+            %s
+            %s
+        """ % (args.start_date.strftime(DATE_FORMAT),
+            args.end_date.strftime(DATE_FORMAT),
+            self.tasks_resolved,
+            self.get_table(),
+            self.get_aggregate_stats(),
+            self.get_chart_script())
+
+        html = """
+            <html>
+              <head>
+                <link href="c3.min.css" rel="stylesheet" type="text/css">
+                <script type="text/javascript" src="http://d3js.org/d3.v3.js"></script>
+                <script type="text/javascript" src="c3.min.js"></script>
+              </head>
+              <body>%s</body>
+            </html>
+            """ % body
+        return html
+
+    def get_table(self):
+        table_rows = ''
+
+        for task in self.tasks:
+            if task.resolved_between(args.start_date, args.end_date):
+                created_date = str(task.created_date()).ljust(20)
+                start_date = str(task.start_date()).ljust(20)
+                if task.start_date():
+                    self.cycle_times.append(task.cycle_time())
+                    cycle_time = str(self.cycle_times[-1]).ljust(20)
+                else:
+                    cycle_time = 'None'.ljust(20)
+                self.lead_times.append(task.lead_time())
+                lead_time = str(self.lead_times[-1]).ljust(20)
+                table_rows += """
+                    <tr>
+            			<td>%s</td>
+            			<td>%s</td>
+            			<td>%s</td>
+            			<td>%s</td>
+            			<td>%s</td>
+            			<td>%s</td>
+            			<td>%s</td>
+            		</tr>
+                """ % (task.id, created_date, start_date, task.resolved_date(), cycle_time, lead_time, task.name)
+        table = """
+        	<table>
+        		<tr>
+        			<th>ID</th>
+        			<th>Created Date</th>
+        			<th>Start Date</th>
+        			<th>Completed Date</th>
+        			<th>Cycle Time</th>
+        			<th>Lead Time</th>
+        			<th>Title</th>
+                </tr>
+        		%s
+            </table>
+        """ % table_rows
+        return table
+
+    def get_chart_script(self):
+        column_names = [c['name'] for c in CONFIG['columns'][1:]]
+        column_names.append('Done')
+        column_count = len(column_names)
+
+        columns = [[] for _ in range(column_count)]
+        done_column = get_done_column(self.tasks, self.args)
+        days_in_range = (self.args.end_date - self.args.start_date).days
+        current_day = self.args.start_date
+        for day_index in range(days_in_range):
+            column_counts = column_counts_for_day(current_day, tasks, done_column, args.start_date)
+            for column_index, column_count in enumerate(column_counts):
+                columns[column_index].append(column_count)
+            current_day += timedelta(days=1)
+
+    # days_in_range = (args.end_date - args.start_date).days
+    # dates = [(args.start_date + timedelta(days=d)) for d in range(days_in_range)]
+    # column_count = len(CONFIG['columns'])
+    # Y = [[] for _ in range(column_count)]
+    # current_day = args.start_date
+    # done_column = get_done_column(tasks, args)
+    # for day_index in range(days_in_range):
+    #     column_counts = column_counts_for_day(current_day, tasks, done_column, args.start_date)
+    #     for column_index, column_count in enumerate(column_counts):
+    #         Y[column_index].append(column_count)
+    #     current_day += timedelta(days=1)
+
+        # column_names = ['data1', 'data2']
+        # columns = [[300, 350, 300, 0, 0, 120],[130, 100, 140, 200, 150, 50] ]
+        columns = [[column_names[i]] + column for i, column in enumerate(columns)]
+        types = dict((column_name, 'area') for column_name in column_names)
+        script = """
+            <script type="text/javascript">
+            var chart = c3.generate({
+                data: {
+                    columns: %s,
+                    types: %s,
+                    groups: [%s],
+                    order: null
+                }
+            });
+            </script>
+        """ % (json.dumps(columns), json.dumps(types), json.dumps(column_names))
+        return script
+
+    def get_aggregate_stats(self):
+        average_cycle_time = calculate_timedeltas_average(self.cycle_times)
+        average_lead_time = calculate_timedeltas_average(self.lead_times)
+        days_in_range = (self.args.end_date - self.args.start_date).days
+        days_per_week = 7
+        throughput = (self.tasks_resolved / float(days_in_range)) * days_per_week
+        return """
+            <p>Average cycle time: %s</p>
+            <p>Average lead time: %s</p>
+            <p>Tasks completed per week (throughput): %.1f</p>
+            """ % (average_cycle_time, average_lead_time, throughput)
+
+if __name__ == '__main__':
+    args = parse_arguments()
+    CONFIG = get_config(args)
+
+    # Create the Phabricator API wrapper.
+    phab = phabricator.Phabricator(timeout=500)
+
+    # Get the tasks belonging to the given board.
+    api_tasks = phab.maniphest.query(projectPHIDs=[CONFIG['workboard']])
+    tasks = [
+        Task(api_tasks[task_id]['id'], api_tasks[task_id]['title'])
+        for task_id in api_tasks  # .values() not implemented
+    ]
+
+    # Decorate the tasks with their transactions.
+    task_ids = [int(task.id) for task in tasks]
+    transactions = phab.maniphest.gettasktransactions(ids=task_ids)
+    for task in tasks:
+        task.set_transactions(transactions[task.id])
+
+    if args.html:
+        generate_html(tasks, args)
+    else:
+        print_results(tasks, args)
