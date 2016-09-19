@@ -79,6 +79,7 @@ class Task(object):
         self.cached_resolved_date = None
         self.cached_created_date = None
         self.is_resolved = None
+        self.is_closed = None
 
     def set_transactions(self, transactions):
         """
@@ -90,6 +91,18 @@ class Task(object):
 
         # force is_resolved to get set
         self.resolved_date() # TODO find a cleaner way to do this
+        self.update_is_closed()
+
+    def update_is_closed(self):
+        for transaction in self.transactions:
+            if (transaction['transactionType'] == 'status' and
+                    (transaction['newValue'] == 'invalid' or
+                    transaction['newValue'] == 'wontfix' or
+                    transaction['newValue'] == 'resolved')):
+                timestamp = int(transaction['dateCreated'])
+                self.is_closed = True
+                return
+        self.is_closed = False
 
     def resolved_between(self, start_date, end_date):
         """
@@ -303,7 +316,10 @@ def show_cfd(tasks, args):
 def column_counts_for_day(day, tasks, done_column, start_date):
     column_counts = [0] * (len(CONFIG['columns']) - 1)
     for task in tasks:
-        if task.is_resolved:
+        task_is_invalid = task.resolved_date() == None and task.is_closed
+        if task_is_invalid:
+            continue
+        if task.resolved_date() and task.resolved_date().date() <= day.date():
             continue
         column_value = task.column_at(day)
         if column_value >= 1:
