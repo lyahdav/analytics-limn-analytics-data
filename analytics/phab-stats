@@ -1,258 +1,112 @@
 #!/usr/bin/env python
 
-# This script generates a set of productivity related metrics for a given
-# Phabricator workboard and time range. The Phabricator workboard details
-# must be specified via config file (see phab-stats-config.json). The time
-# range is specified via start_date and end_date parameters.
-#
-# IMPORTANT: The script assumes that resolved tasks stay in the workboard
-# 'forever'. This way, it can get the workboard via http, parse it and get
-# all tasks that some day travelled through it.
-
-
 import os
 import re
 import argparse
 import json
 import phabricator
 import requests
+import pprint
+import csv
 from datetime import datetime
+from datetime import timedelta
 
-
-WORKBOARD_URL_TEMPLATE = 'https://phabricator.wikimedia.org/project/board/%s/query/all/'
 DATE_FORMAT = '%Y-%m-%d'
 
-
 def parse_arguments():
-    parser = argparse.ArgumentParser(
-        description='Generate metrics on Phabricator workboard ' +
-                    'activity for a given date range.')
-    def date_type(date_str):
-        return datetime.strptime(date_str, DATE_FORMAT)
-    parser.add_argument('start_date',
-        help='Start of the interval for the generated summary (YYYY-MM-DD).',
-        type=date_type)
-    parser.add_argument('end_date',
-        help='End of the interval for the generated summary (YYYY-MM-DD).',
-        type=date_type)
-    this_file_dir = os.path.dirname(os.path.realpath(__file__))
-    parser.add_argument('--config',
-        help='Location of the config file. Default: phab-stats-config.json.',
-        default=os.path.join(this_file_dir, 'phab-stats-config.json'))
+    parser = argparse.ArgumentParser(description='Generate Scrum statistics on Phabricator workboard. See README.md for more.')
+    parser.add_argument('--project-id', help='PHID of project')
     return parser.parse_args()
 
+sprint_column_regex = r"^(\d\d\d\d-\d\d-\d\d) Sprint( \(.+\))?$"
 
-def get_config(args):
-    with open(args.config, 'r') as config_file:
-        config = json.loads(config_file.read())
-        # A map from column names to column values (scores).
-        # Necessary to compute some metrics.
-        config['column_values'] = {c['name']: c['value'] for c in config['columns']}
-        # A map from column phab-ids to column names.
-        # Necessary to understand Phabricator api response.
-        config['column_names'] = {c['phid']: c['name'] for c in config['columns']}
-    return config
+def get_sprint_start_date(sprint_name):
+    date_string = re.search(sprint_column_regex, sprint_name).group(1)
+    return datetime.strptime(date_string, "%Y-%m-%d").date()
 
+def get_sprint_end_date(sprint_name):
+    return get_sprint_start_date(sprint_name) + timedelta(days=6)
 
-class Task(object):
-    """
-    This class represents a Phabricator task.
-    It also groups some convenient methods on task transactions.
-    Phabricator stores any task update as a transaction. So, parsing
-    a list of task transactions, lots of information can be extracted.
-    """
-
-    # The pattern that matches point definitions in task names.
-    POINTS_REGEXP = re.compile(r'\[([0-9]+)\s*pts\]')
-
-    def __init__(self, id, name):
-        self.id = id
-        self.name = name
-        # The transaction list is asigned separately for performance reasons.
-        self.transactions = None
-        # The following fields depend on the transactions to be calculated.
-        self.column = None
-        self.points = None
-
-    def set_transactions(self, transactions):
-        """
-        Sets the task's transactions and triggers the
-        calculation of the fields that depend on them.
-        """
-        self.transactions = transactions
-        self.column = self.column_at('now')
-        self.points = self.parse_points()
-
-    def parse_points(self):
-        """
-        Sets the task's points by trying to parse them from its title,
-        or otherwise looking at the transactions to calculate the point field.
-        """
-        match = Task.POINTS_REGEXP.search(self.name, re.I)
-        if match:
-            return int(match.group(1))
-        for transaction in self.transactions:
-            if transaction['transactionType'] == 'points':
-                return transaction['newValue']
-        return None
-
-    def resolved_between(self, start_date, end_date):
-        """
-        Returns True if the task was resolved between the two dates.
-        """
-        for transaction in self.transactions:
-            if (transaction['transactionType'] == 'status' and
-                    transaction['newValue'] == 'resolved'):
-                timestamp = int(transaction['dateCreated'])
-                transaction_date = datetime.fromtimestamp(timestamp)
-                return (
-                    transaction_date >= start_date and
-                    transaction_date < end_date
-                )
+def is_past_sprint(col):
+    sprint_name = col['fields']['name']
+    result = re.search(sprint_column_regex, sprint_name)
+    if not result:
         return False
+    end_date = get_sprint_end_date(sprint_name)
+    today = datetime.now().date()
+    return end_date < today
 
-    def column_at(self, date):
-        """
-        Returns the value of the column in which the task was at the given date.
-        If the date is 'now', returns the column where the task is currently.
-        """
-        current_column = 0  # Board's initial column.
-        # Transactions are sorted by timestamp, newest to oldest.
-        # So they need to be reversed.
-        for transaction in reversed(self.transactions):
-            if transaction['transactionType'] == 'projectcolumn':
-                timestamp = int(transaction['dateCreated'])
-                transaction_date = datetime.fromtimestamp(timestamp)
-                if date == 'now' or transaction_date <= date:
-                    columns = self.get_transaction_columns(transaction)
-                    current_column = columns['newValue']
-                else:
-                    # First column change after the given date.
-                    # This means the current_column is the requested value.
-                    break
-        return current_column
+def get_velocity_data_for_project(phab, project_id):
+    # result is dictionary like object with keys as task IDs and values as dictionary of task info
+    result = phab.maniphest.query(projectPHIDs=[project_id], status="status-resolved")
+    tasks = result.values()
 
-    def steps_between(self, start_date, end_date):
-        """
-        Returns the number of column changes that a task has suffered,
-        regardless if they are forwards or backwards. Only specified
-        workboard columns do count. If a task jumps various steps in one
-        transaction, they are counted as separate.
-        """
-        steps = 0
-        for transaction in self.transactions:
-            if transaction['transactionType'] == 'projectcolumn':
-                columns = self.get_transaction_columns(transaction)
-                steps += abs(columns['newValue'] - columns['oldValue'])
-        return steps
+    task_points = [float(task['points']) for task in tasks if task['points']]
+    number_of_resolved_tasks_missing_estimate = len([task for task in tasks if not task['points']])
 
-    def get_transaction_columns(self, transaction):
-        """
-        Assumes the transaction is of type 'projectcolumn'.
-        Returns the transaction's normalized old and new column values.
-        """
-        column_values = {}
-        for kind in ['oldValue', 'newValue']:
-            column_phids = transaction[kind]['columnPHIDs']
-            # Phabricator api is crazy and returns different data types
-            # for the same field. Sometimes list, sometimes dict.
-            if type(column_phids) == list and len(column_phids) > 0:
-                column_phid = column_phids[0]
-            elif type(column_phids) == dict and len(column_phids) > 0:
-                column_phid = column_phids.values()[0]
-            else:
-                column_values[kind] = 0 # Outside of workboard.
-                continue
-            # Translate Phabricator column phab-ids into column values.
-            if column_phid in CONFIG['column_names']:
-                column_name = CONFIG['column_names'][column_phid]
-                column_values[kind] = CONFIG['column_values'][column_name]
-            else:
-                column_values[kind] = 0 # Outside of workboard.
-        return column_values
+    individual_stats = {}
 
-
-def calculate_points_resolved(tasks, args):
-    """
-    Returns the sum of task points in all tasks that have been
-    marked as resolved between args.start_date and args.end_date.
-    """
-    points_resolved = 0
     for task in tasks:
-        if task.resolved_between(args.start_date, args.end_date):
-            points_resolved += task.points or CONFIG['default_points']
-    return points_resolved
+        owner_id = task['ownerPHID']
+        name = get_name_from_user_id(phab, owner_id)
+        if not name in individual_stats:
+            individual_stats[name] = {
+                'points': 0.0,
+                'tasks': 0,
+                'tasks_missing_estimates': False
+            }
+        if task['points']:
+            individual_stats[name]['points'] += float(task['points'])
+        else:
+            individual_stats[name]['tasks_missing_estimates'] = True
+        individual_stats[name]['tasks'] += 1
 
+    return {
+        'number_of_resolved_tasks': len(tasks),
+        'number_of_resolved_tasks_missing_estimate': number_of_resolved_tasks_missing_estimate,
+        'points_of_resolved_tasks': sum(task_points),
+        'individual_stats': individual_stats
+    }
 
-def calculate_points_moved_to_the_right(tasks, args):
-    """
-    For each task, gets the column it was placed at args.start_date and
-    at args.end_date, and calculates how many columns the task has moved
-    forward. For each step, adds 1/N of the task's points, where N is
-    the total number of steps defined in the workboard. Returns the sum
-    of it all.
-    """
-    total_columns = float(max([c['value'] for c in CONFIG['columns']]))
-    points_moved_right = 0
-    for task in tasks:
-        initial_column = task.column_at(args.start_date)
-        final_column = task.column_at(args.end_date)
-        columns_moved = final_column - initial_column
-        task_points = task.points or CONFIG['default_points']
-        points_moved_right += columns_moved / total_columns * task_points
-    return points_moved_right
+name_cache = {}
 
+def get_name_from_user_id(phab, user_id):
+    if user_id in name_cache:
+        return name_cache[user_id]
+    result = phab.user.search(constraints={"phids": [user_id]})
+    name = result.data[0]['fields']['realName']
+    name_cache[user_id] = name
+    return name
 
-def calculate_average_steps(tasks, args):
-    """
-    Returns the average number of column changes that the tasks marked
-    as resolved between args.start_date and args.end_date have seen.
-    Forward changes and backward changes all sum up.
-    """
-    steps_count = 0
-    resolved_count = 0
-    for task in tasks:
-        if task.resolved_between(args.start_date, args.end_date):
-            steps_count += task.steps_between(args.start_date, args.end_date)
-            resolved_count += 1
-    return steps_count / float(resolved_count) if resolved_count > 0 else 0
+def get_columns_from_project(phab):
+    # TODO don't hardcode project PHID
+    result = phab.project.column.search(constraints={"projects": ["PHID-PROJ-aqlx6b262a4iq2b2ooiy"]})
 
+    sprint_columns = [{
+        'start_date': get_sprint_start_date(col['fields']['name']),
+        'last_date': get_sprint_end_date(col['fields']['name']),
+        'column_project_id': col['fields']['proxyPHID'],
+        'velocity': get_velocity_data_for_project(phab, col['fields']['proxyPHID'])
+    } for col in result.data if is_past_sprint(col)]
+
+    return sorted(sprint_columns, key=lambda col: col['start_date'])
+
+def write_to_csv(sorted_sprints, filename):
+    contributor_columns = [name + ' Points Resolved' for name in name_cache.values()]
+    with open(filename, 'wb') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Sprint Start Date', 'Points Resolved'] + contributor_columns + ['Sprint has unestimated resolved tasks'])
+        for sprint in sorted_sprints:
+            unestimated_resolved_tasks = sprint['velocity']['number_of_resolved_tasks_missing_estimate'] > 0
+            contributor_points_resolved = [((name in sprint['velocity']['individual_stats'] and sprint['velocity']['individual_stats'][name]['points']) or 0.0) for name in name_cache.values()]
+            writer.writerow([sprint['start_date'], sprint['velocity']['points_of_resolved_tasks']] + contributor_points_resolved + [unestimated_resolved_tasks])
 
 if __name__ == '__main__':
     args = parse_arguments()
-    CONFIG = get_config(args)
 
-    # Create the Phabricator API wrapper.
     phab = phabricator.Phabricator(timeout=500)
+    phab.update_interfaces()
 
-    # Get the tasks belonging to the given board.
-    api_tasks = phab.maniphest.query(projectPHIDs=[CONFIG['workboard']])
-    tasks = [
-        Task(api_tasks[task_id]['id'], api_tasks[task_id]['title'])
-        for task_id in api_tasks  # .values() not implemented
-    ]
+    sorted_sprints = get_columns_from_project(phab)
 
-    # Decorate the tasks with their transactions.
-    task_ids = [int(task.id) for task in tasks]
-    transactions = phab.maniphest.gettasktransactions(ids=task_ids)
-    for task in tasks:
-        task.set_transactions(transactions[task.id])
-
-    # Print the interval tasks.
-    for task in tasks:
-        if task.resolved_between(args.start_date, args.end_date):
-            print "<%d>\t%s" % (task.points or CONFIG['default_points'], task.name)
-
-    # Calculate the metrics.
-    points_resolved = calculate_points_resolved(tasks, args)
-    points_moved = calculate_points_moved_to_the_right(tasks, args)
-    average_steps = calculate_average_steps(tasks, args)
-
-    # Write output.
-    print('Date\tPoints resolved\tPoints moved to the right\tAverage steps')
-    print('%s\t%d\t%.1f\t%.2f' % (
-        args.start_date.strftime(DATE_FORMAT),
-        points_resolved,
-        points_moved,
-        average_steps
-    ))
+    write_to_csv(sorted_sprints, 'output.csv')
