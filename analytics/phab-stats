@@ -16,6 +16,7 @@ DATE_FORMAT = '%Y-%m-%d'
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Generate Scrum statistics on Phabricator workboard. See README.md for more.')
     parser.add_argument('--project-id', help='PHID of project')
+    parser.add_argument('--task-counts', action='store_true', help='Ignore points, only use task counts')
     return parser.parse_args()
 
 sprint_column_regex = r"^(\d\d\d\d-\d\d-\d\d) Sprint( \(.+\))?$"
@@ -78,9 +79,8 @@ def get_name_from_user_id(phab, user_id):
     name_cache[user_id] = name
     return name
 
-def get_columns_from_project(phab):
-    # TODO don't hardcode project PHID
-    result = phab.project.column.search(constraints={"projects": ["PHID-PROJ-aqlx6b262a4iq2b2ooiy"]})
+def get_columns_from_project(phab, project_id):
+    result = phab.project.column.search(constraints={"projects": [project_id]})
 
     sprint_columns = [{
         'start_date': get_sprint_start_date(col['fields']['name']),
@@ -91,15 +91,17 @@ def get_columns_from_project(phab):
 
     return sorted(sprint_columns, key=lambda col: col['start_date'])
 
-def write_to_csv(sorted_sprints, filename):
-    contributor_columns = [name + ' Points Resolved' for name in name_cache.values()]
+def write_to_csv(sorted_sprints, filename, task_counts):
+    task_points_word = 'Tasks' if task_counts else 'Points'
+    contributor_columns = [name + ' ' + task_points_word + ' Resolved' for name in name_cache.values()]
     with open(filename, 'wb') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(['Sprint Start Date', 'Points Resolved'] + contributor_columns + ['Sprint has unestimated resolved tasks'])
+        writer = csv.writer(csvfile, delimiter=',')
+        writer.writerow(['Sprint Start Date', task_points_word + ' Resolved'] + contributor_columns + ([] if task_counts else ['Sprint has unestimated resolved tasks']))
         for sprint in sorted_sprints:
+            total_count_or_points = sprint['velocity']['number_of_resolved_tasks'] if task_counts else sprint['velocity']['points_of_resolved_tasks']
             unestimated_resolved_tasks = sprint['velocity']['number_of_resolved_tasks_missing_estimate'] > 0
-            contributor_points_resolved = [((name in sprint['velocity']['individual_stats'] and sprint['velocity']['individual_stats'][name]['points']) or 0.0) for name in name_cache.values()]
-            writer.writerow([sprint['start_date'], sprint['velocity']['points_of_resolved_tasks']] + contributor_points_resolved + [unestimated_resolved_tasks])
+            contributor_points_or_tasks_resolved = [((name in sprint['velocity']['individual_stats'] and sprint['velocity']['individual_stats'][name][task_points_word.lower()]) or 0) for name in name_cache.values()]
+            writer.writerow([sprint['start_date'], total_count_or_points] + contributor_points_or_tasks_resolved + ([] if task_counts else [unestimated_resolved_tasks]))
 
 if __name__ == '__main__':
     args = parse_arguments()
@@ -107,6 +109,6 @@ if __name__ == '__main__':
     phab = phabricator.Phabricator(timeout=500)
     phab.update_interfaces()
 
-    sorted_sprints = get_columns_from_project(phab)
+    sorted_sprints = get_columns_from_project(phab, args.project_id)
 
-    write_to_csv(sorted_sprints, 'output.csv')
+    write_to_csv(sorted_sprints, 'output.csv', args.task_counts)
