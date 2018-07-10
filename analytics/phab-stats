@@ -93,7 +93,7 @@ def get_columns_from_project(phab, project_id):
 
 def write_to_csv(sorted_sprints, filename, task_counts):
     task_points_word = 'Tasks' if task_counts else 'Points'
-    contributor_columns = [name + ' ' + task_points_word + ' Resolved' for name in name_cache.values()]
+    contributor_columns = name_cache.values()
     with open(filename, 'wb') as csvfile:
         writer = csv.writer(csvfile, delimiter=',')
         writer.writerow(['Sprint Start Date', task_points_word + ' Resolved'] + contributor_columns + ([] if task_counts else ['Sprint has unestimated resolved tasks']))
