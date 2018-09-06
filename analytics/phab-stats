@@ -17,6 +17,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Generate Scrum statistics on Phabricator workboard. See README.md for more.')
     parser.add_argument('--project-id', help='PHID of project')
     parser.add_argument('--task-counts', action='store_true', help='Ignore points, only use task counts')
+    parser.add_argument('--task-counts-and-points', action='store_true', help='Compute task counts and points')
     return parser.parse_args()
 
 sprint_column_regex = r"^(\d\d\d\d-\d\d-\d\d) Sprint( \(.+\))?$"
@@ -103,6 +104,23 @@ def write_to_csv(sorted_sprints, filename, task_counts):
             contributor_points_or_tasks_resolved = [((name in sprint['velocity']['individual_stats'] and sprint['velocity']['individual_stats'][name][task_points_word.lower()]) or 0) for name in name_cache.values()]
             writer.writerow([sprint['start_date'], total_count_or_points] + contributor_points_or_tasks_resolved + ([] if task_counts else [unestimated_resolved_tasks]))
 
+def write_task_counts_and_points_to_csv(sorted_sprints, filename):
+    contributor_columns = name_cache.values()
+    with open(filename, 'wb') as csvfile:
+        writer = csv.writer(csvfile, delimiter=',')
+        points_and_task_contributor_columns = [(col + ' Tasks Resolved', col + ' Points Resolved') for col in contributor_columns]
+        points_and_task_contributor_columns = list(sum(points_and_task_contributor_columns, ()))
+        writer.writerow(['Sprint Start Date', 'Tasks Resolved', 'Points Resolved'] + points_and_task_contributor_columns)
+        for sprint in sorted_sprints:
+            total_count = sprint['velocity']['number_of_resolved_tasks']
+            total_points = sprint['velocity']['points_of_resolved_tasks']
+            contributor_tasks_resolved = [((name in sprint['velocity']['individual_stats'] and sprint['velocity']['individual_stats'][name]['tasks']) or 0) for name in name_cache.values()]
+            contributor_points_resolved = [((name in sprint['velocity']['individual_stats'] and sprint['velocity']['individual_stats'][name]['points']) or 0) for name in name_cache.values()]
+            interleaved_contributor_values = [val for pair in zip(contributor_tasks_resolved, contributor_points_resolved) for val in pair]
+            #print("interleaved_contributor_values: {0}".format(interleaved_contributor_values))
+            writer.writerow([sprint['start_date'], total_count, total_points] + interleaved_contributor_values)
+
+
 if __name__ == '__main__':
     args = parse_arguments()
 
@@ -111,4 +129,7 @@ if __name__ == '__main__':
 
     sorted_sprints = get_columns_from_project(phab, args.project_id)
 
-    write_to_csv(sorted_sprints, 'output.csv', args.task_counts)
+    if args.task_counts_and_points:
+        write_task_counts_and_points_to_csv(sorted_sprints, 'output.csv')
+    else:
+        write_to_csv(sorted_sprints, 'output.csv', args.task_counts)
